@@ -2,8 +2,8 @@
 *.out
 *.cmake
 test.*
-CMake*
+CMakeFiles
+CMakeCache.txt
 Makefile
 log.*
 *.log
-*.txt

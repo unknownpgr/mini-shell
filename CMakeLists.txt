@@ -1,0 +1,1 @@
+add_executable(mini_sh.o mini_sh.c )

@@ -4,3 +4,6 @@
 test.*
 CMake*
 Makefile
+log.*
+*.log
+*.txt

@@ -46,13 +46,15 @@ void findOp(char *input, char *op, int *opPos)
     {
         switch (input[i])
         {
-        case '|':
-        case '&':
-            if (*opPos < 0)
+        case ';':
+            if (*opPos < 0 || *op == '>' || *op == '<' || *op == '|' || *op == '&')
             {
                 SET_OP();
             }
-            else if (*op == '>' || *op == '<')
+            break;
+        case '|':
+        case '&':
+            if (*opPos < 0 || *op == '>' || *op == '<')
             {
                 SET_OP();
             }
@@ -95,6 +97,9 @@ int tokenize(char *input, char **tokens)
 #undef IS_EMPTY
 }
 
+/**
+ * Read file from `path` and write it to `fd`
+ */
 int streamFile(char *path, int fd)
 {
     int fi = open(path, O_RDONLY);
@@ -154,10 +159,7 @@ int parser(char *input, int pipeIn, int pipeOut)
         pipe(pip);                                // Initialize pipe
         int pid1 = parser(frnt, pipeIn, pip[1]);  // First part, read from stdin and write to pipe
         int pid2 = parser(back, pip[0], pipeOut); // Second part, read from pipe and writ to stdout
-        close(pip[0]);                            // Close unused pipes
-        close(pip[1]);
-        CLOSE();
-        waitpid(pid1, NULL, 0); // Wait until first(supplier) process finished
+        waitpid(pid1, NULL, 0);                   // Wait until first(supplier) process finished
         waitpid(pid2, NULL, 0);
         break;
     }
@@ -165,12 +167,20 @@ int parser(char *input, int pipeIn, int pipeOut)
     {
         int pid1 = parser(frnt, nullFs, pipeOut);
         int pid2 = parser(back, pipeIn, pipeOut);
-        CLOSE();
+        waitpid(pid2, NULL, 0);
+        break;
+    }
+    case ';':
+    {
+        int pid1 = parser(frnt, nullFs, pipeOut);
+        waitpid(pid1, NULL, 0);
+        int pid2 = parser(back, pipeIn, pipeOut);
         waitpid(pid2, NULL, 0);
         break;
     }
     case '<':
     {
+        close(pipeIn);
         char *tokens[512];
         if (tokenize(back, tokens))
         {
@@ -194,7 +204,6 @@ int parser(char *input, int pipeIn, int pipeOut)
             }
             {
                 pid2 = parser(frnt, pip[0], pipeOut); // Run child process
-                close(pip[0]);                        // Close useless pipes
                 close(pip[1]);
             }
             waitpid(pid2, NULL, 0); // Wait until child process is finished
@@ -211,7 +220,7 @@ int parser(char *input, int pipeIn, int pipeOut)
             if (fd > 0)
             {
                 int pid = parser(frnt, pipeIn, fd); // Run child process
-                CLOSE();
+                close(pipeOut);
                 waitpid(pid, NULL, 0); // Wait until child process is finished
                 close(fd);             // Close unused file descriptor
             }
@@ -264,9 +273,11 @@ int main()
 
 #define CMD(compare) startsWith((compare), input)
 
-    printf("msh # ");
-    while (gets(input))
+    while (1)
     {
+        printf("msh # ");
+        fgets(input, 512, stdin);
+
         if (CMD("exit") || CMD("quit"))
         {
             break;
@@ -286,6 +297,8 @@ int main()
             int pid = parser(input, STDIN_FILENO, STDOUT_FILENO);
             waitpid(pid, NULL, 0);
         }
-        printf("msh # ");
     }
+
+    return 0;
+#undef CMD
 }

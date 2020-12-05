@@ -47,21 +47,18 @@ void findOp(char *input, char *op, int *opPos)
         switch (input[i])
         {
         case ';':
-            if (*opPos < 0 || *op == '>' || *op == '<' || *op == '|' || *op == '&')
-            {
-                SET_OP();
-            }
+            SET_OP();
             break;
         case '|':
         case '&':
-            if (*opPos < 0 || *op == '>' || *op == '<')
+            if (*op != ';')
             {
                 SET_OP();
             }
             break;
         case '<':
         case '>':
-            if (*opPos < 0)
+            if (*op != ';' && *op != '|' && *op != '&')
             {
                 SET_OP();
             }

@@ -1,5 +1,6 @@
 *.o
 *.out
 *.cmake
+test.*
 CMake*
 Makefile

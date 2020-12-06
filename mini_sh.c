@@ -114,9 +114,9 @@ int streamFile(char *path, int fd)
 }
 
 /**
- * Run command with given pipeIn and pipeOut
- * return pid of subprocess
- * If subprocess not created, return -1
+ * Parse input and run command with given pipeIn and pipeOut.
+ * return pid of created subprocess
+ * If subprocess not created(or command executed at host process), return PID_NULL.
  */
 int parser(char *input, int pipeIn, int pipeOut)
 {

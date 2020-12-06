@@ -19,17 +19,7 @@
 int nullFs;
 
 /**
- * Check if `str` starts with `pre`
- */
-int startsWith(const char *pre, const char *str)
-{
-    size_t lenpre = strlen(pre),
-           lenstr = strlen(str);
-    return lenstr < lenpre ? FALSE : memcmp(pre, str, lenpre) == 0;
-}
-
-/**
- * Find the first operation. |,& is perior to <,>.
+ * Find the first operator.
 */
 void findOp(char *input, char *op, int *opPos)
 {

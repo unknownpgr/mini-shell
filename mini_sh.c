@@ -13,6 +13,7 @@
 #define PID_NULL -1
 #define PIPE_RD  0
 #define PIPE_WR  1
+#define BUF_LEN  512
 
 #define WARN(msg, ...) fprintf(stderr, "minish : " msg "\n", ##__VA_ARGS__);
 
@@ -90,9 +91,9 @@ int streamFile(char *path, int fd)
     int fi = open(path, O_RDONLY);
     if (fi >= 0)
     {
-        char buf[512];                                 // Assign buffer
-        for (int len; (len = read(fi, buf, 512)) > 0;) // Read until EOF
-            write(fd, buf, len);                       // Write to stream
+        char buf[BUF_LEN];                                 // Assign buffer
+        for (int len; (len = read(fi, buf, BUF_LEN)) > 0;) // Read until EOF
+            write(fd, buf, len);                           // Write to stream
     }
     else
     {
@@ -147,7 +148,7 @@ int parser(char *input, int pipeIn, int pipeOut)
     }
     case '<':
     {
-        char *tokens[512];
+        char *tokens[BUF_LEN];
         if (!tokenize(back, tokens))
             return PID_NULL;
 
@@ -168,7 +169,7 @@ int parser(char *input, int pipeIn, int pipeOut)
     }
     case '>':
     {
-        char *tokens[512];
+        char *tokens[BUF_LEN];
         if (!tokenize(back, tokens))
             return PID_NULL;
 
@@ -189,7 +190,7 @@ int parser(char *input, int pipeIn, int pipeOut)
     default:
     {
         // Parse input and get arguments
-        char *args[100];
+        char *args[BUF_LEN];
         int tokenNum = tokenize(input, args);
 
         // Ignore empty command
@@ -214,12 +215,11 @@ int parser(char *input, int pipeIn, int pipeOut)
                 return PID_NULL;
 
             int pid = fork();
-            if (!pid)
-            {
-                streamFile(args[1], pipeOut);
-                exit(0);
-            }
-            return pid;
+            if (pid)
+                return pid;
+
+            streamFile(args[1], pipeOut);
+            exit(0);
         }
 
 #undef CMD
@@ -250,12 +250,12 @@ int parser(char *input, int pipeIn, int pipeOut)
 int main()
 {
     nullFs = open("/dev/null", O_WRONLY); // Null file descriptor to ignore some input
-    char input[512];                      // User input buffer
+    char input[BUF_LEN];                  // User input buffer
 
     while (1)
     {
         printf("msh # ");                                     // Print shell text
-        fgets(input, 512, stdin);                             // Read user input
+        fgets(input, BUF_LEN, stdin);                         // Read user input
         int pid = parser(input, STDIN_FILENO, STDOUT_FILENO); // Parse and process
         waitpid(pid, NULL, 0);                                // Wait until progess ends
     }

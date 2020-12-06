@@ -8,8 +8,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define FALSE 0
-#define TRUE  !FALSE
+#define FALSE    0
+#define TRUE     !FALSE
+#define PID_NULL -1
+#define PIPE_RD  0
+#define PIPE_WR  1
 
 #define WARN(msg, ...) fprintf(stderr, "minish : " msg "\n", ##__VA_ARGS__);
 
@@ -35,7 +38,8 @@ void findOp(char *input, char *op, int *opPos)
     *op = -1;
     *opPos = -1;
 
-#define SET_OP()        \
+#define SET_OP(cond)    \
+    if (cond)           \
     {                   \
         *op = input[i]; \
         *opPos = i;     \
@@ -47,21 +51,15 @@ void findOp(char *input, char *op, int *opPos)
         switch (input[i])
         {
         case ';':
-            SET_OP();
+            SET_OP(TRUE);
             break;
         case '|':
         case '&':
-            if (*op != ';')
-            {
-                SET_OP();
-            }
+            SET_OP(*op != ';');
             break;
         case '<':
         case '>':
-            if (*op != ';' && *op != '|' && *op != '&')
-            {
-                SET_OP();
-            }
+            SET_OP(*op != ';' && *op != '|' && *op != '&');
             break;
         }
     }
@@ -115,29 +113,13 @@ int streamFile(char *path, int fd)
     return 0;
 }
 
+/**
+ * Run command with given pipeIn and pipeOut
+ * return pid of subprocess
+ * If subprocess not created, return -1
+ */
 int parser(char *input, int pipeIn, int pipeOut)
 {
-#define CLOSE()                       \
-    {                                 \
-        if (pipeIn != STDIN_FILENO)   \
-            close(pipeIn);            \
-        if (pipeOut != STDOUT_FILENO) \
-            close(pipeOut);           \
-    }
-
-    int subprocess = fork();
-    if (subprocess > 0)
-    {
-        // Close useless pipes (Very important)
-        CLOSE();
-        return subprocess;
-    }
-    if (subprocess < 0)
-    {
-        WARN("Could not create subprocess.\n");
-        exit(127);
-    }
-
     // Find operator and split string
     char op, *frnt, *back;
     {
@@ -152,81 +134,67 @@ int parser(char *input, int pipeIn, int pipeOut)
     {
     case '|':
     {
-        int pip[2];                               // Define a pipe
-        pipe(pip);                                // Initialize pipe
-        int pid1 = parser(frnt, pipeIn, pip[1]);  // First part, read from stdin and write to pipe
-        int pid2 = parser(back, pip[0], pipeOut); // Second part, read from pipe and writ to stdout
-        waitpid(pid1, NULL, 0);                   // Wait until first(supplier) process finished
-        waitpid(pid2, NULL, 0);
-        break;
+        int pip[2];                                     // Define a pipe
+        pipe(pip);                                      // Initialize pipe
+        int pid1 = parser(frnt, pipeIn, pip[PIPE_WR]);  // Process 1. Read from stdin and write to pipe
+        close(pip[PIPE_WR]);                            // Close pipe. pip[PIPE_WR] must be closed here. After fork `pid2` process, It can not be closed.
+        int pid2 = parser(back, pip[PIPE_RD], pipeOut); // Process 2. Read from pipe and writ to stdout
+        close(pip[PIPE_RD]);
+        return pid2;
     }
     case '&':
     {
-        int pid1 = parser(frnt, nullFs, pipeOut);
-        int pid2 = parser(back, pipeIn, pipeOut);
-        waitpid(pid2, NULL, 0);
-        break;
+        parser(frnt, nullFs, pipeOut);            // Process 1. Do not read and wrtie to stdut
+        int pid2 = parser(back, pipeIn, pipeOut); // Process 2. Read from stdin and write to stdout
+        return pid2;
     }
     case ';':
     {
-        int pid1 = parser(frnt, nullFs, pipeOut);
-        waitpid(pid1, NULL, 0);
-        int pid2 = parser(back, pipeIn, pipeOut);
-        waitpid(pid2, NULL, 0);
-        break;
+        int pid1 = parser(frnt, pipeIn, pipeOut); // Process 1. Read from stdin and write to stdout
+        waitpid(pid1, NULL, 0);                   // Wait until process 1 is finished
+        int pid2 = parser(back, pipeIn, pipeOut); // Process 2. Read from stdin and write to stdout
+        return pid2;
     }
     case '<':
     {
-        close(pipeIn);
         char *tokens[512];
-        if (tokenize(back, tokens))
+        if (!tokenize(back, tokens))
+            return PID_NULL;
+
+        int pip[2];        // Define pipes
+        pipe(pip);         // Initialize pipes
+        int pid1 = fork(); // Subprocess muse be used to properly close pipes.
+        if (!pid1)
         {
-            int pip[2]; // Define pipes
-            int pid1;
-            int pid2;
-            pipe(pip); // Initialize pipes
-            {
-                int pid1 = fork(); // Subprocess muse be used to properly close pipes.
-                if (!pid1)
-                {
-                    streamFile(tokens[0], pip[1]); // Stream file to pipe
-                    close(pip[0]);                 // Close useless pipes
-                    close(pip[1]);                 //
-                    exit(0);                       // Exit subprocess
-                }
-                else
-                {
-                    close(pip[1]); // Close subprocess in parent process
-                }
-            }
-            {
-                pid2 = parser(frnt, pip[0], pipeOut); // Run child process
-                close(pip[1]);
-            }
-            waitpid(pid2, NULL, 0); // Wait until child process is finished
-            waitpid(pid1, NULL, 0);
+            streamFile(tokens[0], pip[PIPE_WR]); // Stream file to pipe
+            close(pip[PIPE_RD]);                 // Close pipes both pipe at child process
+            close(pip[PIPE_WR]);                 //
+            exit(0);                             // Exit subprocess
         }
-        break;
+        close(pip[PIPE_WR]);                            // Close pipe 1 at host process. Therefore, only pip[PIPE_RD] is alive.
+        int pid2 = parser(frnt, pip[PIPE_RD], pipeOut); // Run child process
+        close(pip[PIPE_RD]);                            // Close pip[PIPE_RD]
+        return pid2;
     }
     case '>':
     {
         char *tokens[512];
-        if (tokenize(back, tokens))
+        if (!tokenize(back, tokens))
+            return PID_NULL;
+
+        int fd = open(tokens[0], O_CREAT | O_RDWR); // Open file to write output
+        if (fd > 0)
         {
-            int fd = open(tokens[0], O_WRONLY | O_CREAT); // Open file
-            if (fd > 0)
-            {
-                int pid = parser(frnt, pipeIn, fd); // Run child process
-                close(pipeOut);
-                waitpid(pid, NULL, 0); // Wait until child process is finished
-                close(fd);             // Close unused file descriptor
-            }
-            else
-            {
-                WARN("Cannot open file");
-            }
+            int pid = parser(frnt, pipeIn, fd); // Run child process
+            close(fd);                          // Close unused file descriptor
+            return pid;
         }
-        break;
+        else
+        {
+            WARN("Cannot open file");
+        }
+        close(fd);
+        return PID_NULL;
     }
     default:
     {
@@ -234,24 +202,51 @@ int parser(char *input, int pipeIn, int pipeOut)
         char *args[100];
         int tokenNum = tokenize(input, args);
 
-        // Ignore empty query
+        // Ignore empty command
         if (tokenNum == 0)
-            break;
+            return PID_NULL;
+
+#define CMD(compare) (!strcmp((compare), args[0]))
+
+        if (CMD("exit") || CMD("quit"))
+            exit(0);
+
+        if (CMD("cd"))
+        {
+            if (tokenNum > 1)
+                chdir(args[1]);
+            return PID_NULL;
+        }
+
+        if (CMD("type"))
+        {
+            if (tokenNum < 2)
+                return PID_NULL;
+
+            int pid = fork();
+            if (!pid)
+            {
+                streamFile(args[1], pipeOut);
+                exit(0);
+            }
+            return pid;
+        }
+
+#undef CMD
+
+        int pid = fork();
+        if (pid)
+            return pid;
 
         // Assign pipes
-        if (dup2(pipeIn, STDIN_FILENO) < 0)
-        {
-            WARN("Cannot duplicated input pipe");
-            exit(errno);
-        }
-        if (dup2(pipeOut, STDOUT_FILENO) < 0)
-        {
-            WARN("Cannot duplicated output pipe");
-            exit(errno);
-        }
+        dup2(pipeIn, STDIN_FILENO);
+        dup2(pipeOut, STDOUT_FILENO);
 
-        // Close unused pipes
-        CLOSE();
+        // Close pipes. Avoid to close stdin/out, check it.
+        if (pipeIn != STDIN_FILENO)
+            close(pipeIn);
+        if (pipeOut != STDOUT_FILENO)
+            close(pipeOut);
 
         // Execute program
         execvp(*args, args);
@@ -259,43 +254,21 @@ int parser(char *input, int pipeIn, int pipeOut)
         exit(127);
     }
     }
-    exit(0);
+    return PID_NULL;
 }
 
 int main()
 {
-    nullFs = open("/dev/null", O_WRONLY);
-    char input[512];
-    char *args[512];
-
-#define CMD(compare) startsWith((compare), input)
+    nullFs = open("/dev/null", O_WRONLY); // Null file descriptor to ignore some input
+    char input[512];                      // User input buffer
 
     while (1)
     {
-        printf("msh # ");
-        fgets(input, 512, stdin);
-
-        if (CMD("exit") || CMD("quit"))
-        {
-            break;
-        }
-        else if (CMD("cd"))
-        {
-            if (tokenize(input, args))
-                chdir(args[1]);
-        }
-        else if (CMD("type"))
-        {
-            if (tokenize(input, args))
-                streamFile(args[1], STDOUT_FILENO);
-        }
-        else
-        {
-            int pid = parser(input, STDIN_FILENO, STDOUT_FILENO);
-            waitpid(pid, NULL, 0);
-        }
+        printf("msh # ");                                     // Print shell text
+        fgets(input, 512, stdin);                             // Read user input
+        int pid = parser(input, STDIN_FILENO, STDOUT_FILENO); // Parse and process
+        waitpid(pid, NULL, 0);                                // Wait until progess ends
     }
 
     return 0;
-#undef CMD
 }

@@ -58,7 +58,7 @@ void findOp(char *input, char *op, int *opPos)
 }
 
 /**
- * Toknize given input string.
+ * Toknize the given input string.
  * 1. Insert EOL('\0') at the end of each word
  * 2. Fill `tokens` array (last element is always NULL)
  * 3. Return the number of `tokens` array
@@ -105,9 +105,9 @@ int streamFile(char *path, int fd)
 }
 
 /**
- * Parse input and run command with given pipeIn and pipeOut.
+ * Parse input and run commands with given pipeIn and pipeOut.
  * return pid of created subprocess
- * If subprocess not created(or command executed at host process), return PID_NULL.
+ * If subprocess is not created(or command executed at host process), return PID_NULL.
  */
 int parser(char *input, int pipeIn, int pipeOut)
 {
@@ -129,13 +129,13 @@ int parser(char *input, int pipeIn, int pipeOut)
         pipe(pip);                                      // Initialize pipe
         int pid1 = parser(frnt, pipeIn, pip[PIPE_WR]);  // Process 1. Read from stdin and write to pipe
         close(pip[PIPE_WR]);                            // Close pipe. pip[PIPE_WR] must be closed here. After fork `pid2` process, It can not be closed.
-        int pid2 = parser(back, pip[PIPE_RD], pipeOut); // Process 2. Read from pipe and writ to stdout
+        int pid2 = parser(back, pip[PIPE_RD], pipeOut); // Process 2. Read from pipe and write to stdout
         close(pip[PIPE_RD]);
         return pid2;
     }
     case '&':
     {
-        parser(frnt, nullFs, pipeOut);            // Process 1. Do not read and wrtie to stdut
+        parser(frnt, nullFs, pipeOut);            // Process 1. Do not read and write to stdout
         int pid2 = parser(back, pipeIn, pipeOut); // Process 2. Read from stdin and write to stdout
         return pid2;
     }
@@ -232,7 +232,7 @@ int parser(char *input, int pipeIn, int pipeOut)
         dup2(pipeIn, STDIN_FILENO);
         dup2(pipeOut, STDOUT_FILENO);
 
-        // Close pipes. Avoid to close stdin/out, check it.
+        // Close pipes. Avoid closing the stdin/out, check it.
         if (pipeIn != STDIN_FILENO)
             close(pipeIn);
         if (pipeOut != STDOUT_FILENO)
@@ -257,7 +257,7 @@ int main()
         printf("msh # ");                                     // Print shell text
         fgets(input, BUF_LEN, stdin);                         // Read user input
         int pid = parser(input, STDIN_FILENO, STDOUT_FILENO); // Parse and process
-        waitpid(pid, NULL, 0);                                // Wait until progess ends
+        waitpid(pid, NULL, 0);                                // Wait until process ends
     }
 
     return 0;
